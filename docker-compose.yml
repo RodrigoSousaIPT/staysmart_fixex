@@ -1,47 +1,77 @@
-# docker-compose.yml — local Evolution API + Postgres for staysmart_fixed
+# docker-compose.yml — local Evolution API + Postgres + Redis for staysmart_fixed
 #
-# This file is mounted at staysmart_fixed/ and is REPLACED in staysmart_fixed/,
-# the fixed repo. To boot:
-#   1. cp .env.local.example .env.local
+# On your PC the WhatsApp server stack runs here. The website is on Vercel and
+# Supabase runs as a managed cloud — both reach this stack either via:
+#   (a) ngrok tunnel placed in NGROK_URL  (recommended for local dev)
+#   (b) public Supabase Edge Function URL placed in WEBHOOK_GLOBAL_URL (prod)
+#   (c) local Supabase stack on http://host.docker.internal:54321 (default fallback)
+#
+# To boot fresh:
+#   1. cp .env.local.example .env  (then fill in your real keys)
 #   2. docker compose up -d
-#   3. ngrok http 8080   →  paste the HTTPS URL into EVOLUTION_WEBHOOK_BASE
+#   3. Optional: ngrok http 8080  →  paste URL into NGROK_URL
 #
-# Volume on evolution_data persists the auth files (QR sessions) so you don't
-# have to re-scan the WhatsApp QR after each restart.
+# Volume `evolution_data` persists the WhatsApp auth files (QR sessions) so you
+# don't have to re-scan the QR after each restart.
 
 services:
+  # --------------------------------------------------------------
+  # Evolution API (WhatsApp Web automation)
+  # --------------------------------------------------------------
+  # NOTE: the legacy `atendai/evolution-api:v2.0.0` image on Docker Hub has
+  # been deprecated. The active maintainer org is `evoapicloud`. v2.3.x is
+  # the current stable line that matches what Evolution recommends.
   evolution-api:
-    image: atendai/evolution-api:v2.0.0           # pin a known-good release
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: staysmart_evolution_api
     restart: unless-stopped
     ports:
-      - "8080:8080"                               # API server
+      - "8080:8080"
     environment:
-      # ---- Auth mode ----
+      # ---- Auth ----
       AUTHENTICATION_TYPE:                       "apikey"
       AUTHENTICATION_API_KEY:                    "${EVOLUTION_API_KEY:-local-evolution-secret}"
       AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES:  "false"
 
-      # ---- Webhook delivery (ngrok-fronted) ----
-      # webhook.global.url points at the public ngrok URL that fronts the
-      # Supabase Edge Function `wa-webhook`.
+      # ---- Server ----
+      SERVER_TYPE:                               "http"
+
+      # ---- Webhook delivery ----
+      # Priority: explicit WEBHOOK_GLOBAL_URL > NGROK_URL > local Supabase default.
+      # Set WEBHOOK_GLOBAL_URL to your Supabase cloud function URL in production:
+      #   https://<project-ref>.supabase.co/functions/v1/wa-webhook
       WEBHOOK_GLOBAL_ENABLED:                    "true"
-      WEBHOOK_GLOBAL_URL:                        "${NGROK_URL:-http://host.docker.internal:54321}/functions/v1/wa-webhook"
+      WEBHOOK_GLOBAL_URL:                        "${WEBHOOK_GLOBAL_URL:-${NGROK_URL:-http://host.docker.internal:54321}/functions/v1/wa-webhook}"
       WEBHOOK_EVENTS_MESSAGES_UPSERT:            "true"
       WEBHOOK_EVENTS_MESSAGES_DELETE:            "true"
       WEBHOOK_EVENTS_CONNECTION_UPDATE:          "true"
       WEBHOOK_EVENTS_QRCODE_UPDATED:             "true"
       WEBHOOK_EVENTS_SEND_MESSAGE:               "true"
-      # Per-instance headers (some versions support it)
       WEBHOOK_GLOBAL_HEADERS:                    '{"apikey":"${SUPABASE_SERVICE_ROLE_KEY:-dev}"}'
 
-      # ---- Misc ----
+      # ---- Persistence ----
       STORE_ENABLED:                             "true"
       STORE_MESSAGES:                            "true"
-      CACHE_REDIS_ENABLED:                       "false"
+      STORE_MESSAGE_UP:                          "true"
+      STORE_CONNECTION:                          "true"
+
+      # ---- Database (Postgres) ----
+      DATABASE_ENABLED:                          "true"
+      DATABASE_PROVIDER:                         "postgresql"
+      DATABASE_CONNECTION_URI:                   "postgresql://evolution:evolution@evolution-postgres:5432/evolution"
+
+      # ---- Cache (Redis) ----
+      CACHE_REDIS_ENABLED:                       "true"
+      CACHE_REDIS_URI:                           "redis://evolution-redis:6379"
+
+      # ---- Misc ----
       LOG_LEVEL:                                 "INFO"
+      LOG_BAILEYS:                               "warn"
     volumes:
-      - evolution_data:/evolution/instances       # persist WhatsApp sessions across restarts
+      - evolution_data:/evolution/instances       # persist WhatsApp sessions
+    depends_on:
+      - evolution-postgres
+      - evolution-redis
     extra_hosts:
       - "host.docker.internal:host-gateway"       # Linux/Windows/Mac interop
     healthcheck:
@@ -49,9 +79,13 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
+  # --------------------------------------------------------------
+  # Postgres — Evolution's persistent store
+  # --------------------------------------------------------------
   evolution-postgres:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     container_name: staysmart_evolution_pg
     restart: unless-stopped
     environment:
@@ -60,8 +94,19 @@ services:
       POSTGRES_DB:       evolution
     volumes:
       - evolution_pg:/var/lib/postgresql/data
-    # NOT exposed to host — Evolution API connects over the docker network.
+    # Not exposed to host — Evolution connects via the docker network.
+
+  # --------------------------------------------------------------
+  # Redis — Evolution's cache
+  # --------------------------------------------------------------
+  evolution-redis:
+    image: redis:7-alpine
+    container_name: staysmart_evolution_redis
+    restart: unless-stopped
+    volumes:
+      - evolution_redis:/data
 
 volumes:
   evolution_data:
   evolution_pg:
+  evolution_redis:

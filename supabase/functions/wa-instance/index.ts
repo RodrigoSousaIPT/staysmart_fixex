@@ -2,10 +2,18 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const INSTANCE_NAME_RE = /^[a-z0-9-]{1,64}$/;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const EVOLUTION_URL = Deno.env.get("EVOLUTION_API_URL") ?? "";
 const EVOLUTION_KEY = Deno.env.get("EVOLUTION_API_KEY") ?? "";
 const WEBHOOK_SECRET = Deno.env.get("EVOLUTION_WEBHOOK_SECRET") ?? "";
-const WEBHOOK_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/wa-webhook`;
+// Defensive: only build a usable WEBHOOK_URL when both halves are present.
+// A `${undefined}/...` template literal would send the literal string
+// "undefined/functions/..." to Evolution, which would then reject it.
+const WEBHOOK_URL = SUPABASE_URL
+  ? `${SUPABASE_URL}/functions/v1/wa-webhook`
+  : "";
 const DEBUG = Deno.env.get("DEBUG") === "true";
 
 const CORS = {
@@ -32,14 +40,39 @@ async function evo(
   const safeBody = body ? JSON.parse(JSON.stringify(body)) : undefined;
   log(`Evolution API request: ${method} ${path}`, safeBody);
 
-  const res = await fetch(`${EVOLUTION_URL}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      apikey: EVOLUTION_KEY,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Network-level guard: if EVOLUTION_URL is unset, return a clear 503 instead
+  // of throwing "undefined is not a valid URL" asynchronously.
+  if (!EVOLUTION_URL) {
+    log(`Evolution URL missing at runtime`);
+    return new Response(
+      JSON.stringify({ error: "EVOLUTION_API_URL secret not set on Supabase" }),
+      { status: 503, headers: { ...CORS, "Content-Type": "application/json" } },
+    );
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${EVOLUTION_URL}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: EVOLUTION_KEY,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      // Bound the wait — Supabase Edge Functions have a ~60s hard ceiling
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (e) {
+    // Most common cause: EVOLUTION_API_URL points to a localhost / private IP
+    // that the Supabase runtime can't reach → ECONNREFUSED.
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`Evolution fetch threw: ${method} ${path}`, msg);
+    log(`Evolution fetch error`, { msg });
+    return new Response(
+      JSON.stringify({ error: `Cannot reach Evolution API: ${msg}` }),
+      { status: 502, headers: { ...CORS, "Content-Type": "application/json" } },
+    );
+  }
 
   log(`Evolution API response: ${method} ${path}`, {
     status: res.status,
@@ -72,6 +105,15 @@ function text(msg: string, status = 200): Response {
 }
 
 serve(async (req) => {
+  // Top-of-function env validation. Returning a clear 503 here means the
+  // browser sees a meaningful error instead of an opaque 500 thrown later.
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+    return text("Supabase env missing on the function", 503);
+  }
+  if (!EVOLUTION_URL || !EVOLUTION_KEY) {
+    return text("EVOLUTION_API_URL / EVOLUTION_API_KEY secret missing on Supabase", 503);
+  }
+
   try {
     const safeHeaders = Object.fromEntries(req.headers);
     delete safeHeaders["authorization"];
@@ -88,8 +130,8 @@ serve(async (req) => {
     log(`Auth header present`, { authHeaderLength: authHeader.length });
 
     const supabaseUser = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
       { global: { headers: { Authorization: authHeader } } },
     );
 
@@ -175,8 +217,8 @@ serve(async (req) => {
         }
         // Instance already exists — persist wa_instance_name so webhook can match property
         const supabaseService = createClient(
-          Deno.env.get("SUPABASE_URL")!,
-          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          SUPABASE_URL,
+          SUPABASE_SERVICE_ROLE_KEY,
         );
         const updateResult = await supabaseService
           .from("properties")
@@ -189,8 +231,8 @@ serve(async (req) => {
       log(`Instance created successfully on Evolution, updating database`);
 
       const supabaseService = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
       );
       const updateResult = await supabaseService
         .from("properties")
@@ -262,8 +304,8 @@ serve(async (req) => {
         (match?.instance as Record<string, unknown> | undefined)?.owner as string ?? null;
 
       const supabaseService = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
       );
       await supabaseService.from("properties").update({ wa_display_number: displayNumber }).eq("id", propertyId);
       return json({ wa_display_number: displayNumber });
@@ -302,8 +344,8 @@ serve(async (req) => {
       log(`Updating database to clear wa_instance_name and wa_display_number`);
 
       const supabaseService = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
       );
       const updateResult = await supabaseService
         .from("properties")

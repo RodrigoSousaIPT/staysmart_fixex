@@ -99,17 +99,27 @@ serve(async (req) => {
   const tpl = GREETINGS[lang] || GREETINGS.PT;
   const text = tpl(prop.name ?? "your stay");
 
-  // Send via Evolution API v1.8.x
+  // Send via Evolution API. Wrap in try/catch + AbortSignal so unreachable
+  // Evolution (e.g. localhost from the Supabase runtime) yields a clear 502
+  // instead of an opaque 500 thrown by the runtime.
   const endpoint =
     `${EVOLUTION_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(prop.wa_instance_name)}`;
-  const evoRes = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: EVOLUTION_KEY,
-    },
-    body: JSON.stringify({ number: digits, textMessage: { text } }),
-  });
+  let evoRes: Response;
+  try {
+    evoRes = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: EVOLUTION_KEY,
+      },
+      body: JSON.stringify({ number: digits, textMessage: { text } }),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("Evolution sendText threw:", msg);
+    return bad(`Evolution unreachable: ${msg}`, 502);
+  }
 
   if (!evoRes.ok) {
     const errText = await evoRes.text();
