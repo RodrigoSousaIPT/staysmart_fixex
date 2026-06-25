@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint -- --max-warnings 0
+        continue-on-error: false
+
+      - name: Build (Vite production)
+        env:
+          # Use fake-but-shape-correct env so the import-time checks pass.
+          # Real values are NOT needed for the SPA build; they are read at runtime.
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder
+        run: npm run build
+
+      - name: Sanity: dist exists & contains index.html
+        run: |
+          test -f dist/index.html
+          test -d dist/assets
+          echo "BUILD_OK"

@@ -1,5 +1,8 @@
 # StaySmart — Fixed Edition (`staysmart_fixed`)
 
+> Repository: **https://github.com/RodrigoSousaIPT/staysmart_fixex**
+> Live demo (Vercel): **deploy with one click below**
+
 A thin-fix rewrite of the StaySmart hospitality AI SaaS, with:
 
 - 🤖 **Gemini-powered chatbot** (replaces Anthropic Claude in `wa-webhook`)
@@ -30,9 +33,48 @@ A thin-fix rewrite of the StaySmart hospitality AI SaaS, with:
 
 ## 2. Quick start
 
+### Option A — One command on your PC (Windows)
+
+```powershell
+git clone https://github.com/RodrigoSousaIPT/staysmart_fixex
+cd staysmart_fixex
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
+```
+
+### Option A.2 — One command (Linux / macOS / WSL)
+
+```bash
+git clone https://github.com/RodrigoSousaIPT/staysmart_fixex
+cd staysmart_fixex
+bash scripts/bootstrap.sh
+```
+
+The bootstrap script will: check `node`/`docker`/`npm`, copy `.env.local.example`
+→ `.env.local`, start Docker Desktop if needed, run `docker compose up -d`,
+launch ngrok tunnels, optionally start the Supabase local stack and Vite.
+
+Any stage can be skipped with `-SkipVite -SkipNgrok …` (PowerShell) or
+`SKIP_VITE=1 SKIP_NGROK=1 …` (bash).
+
+### Option B — Deploy to Vercel
+
+1. Connect this repo on https://vercel.com/new.
+2. Vercel auto-detects **Vite** + `npm run build` + `dist/`. No config needed.
+3. Add environment variables in the Vercel dashboard for the production branch:
+
+   | Name | Value |
+   | --- | --- |
+   | `VITE_SUPABASE_URL`     | your hosted Supabase Project URL |
+   | `VITE_SUPABASE_ANON_KEY`| your hosted Supabase anon key |
+
+4. Push → Vercel builds and deploys the public landing site + dashboard UI.
+   Edge Functions stay on Supabase (configure via `supabase functions deploy …`).
+
+### Option C — Manual
+
 ```bash
 # Clone & enter
-git clone https://github.com/Simon-Almeida/...  staysmart_fixed
+git clone https://github.com/RodrigoSousaIPT/staysmart_fixex staysmart_fixed
 cd staysmart_fixed
 
 # 1) Environment

@@ -10,7 +10,13 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.env
+.env.local
+.env.*.local
 *.local
+# secrets for one-click installers
+ngrok.log
+.vercel
 
 # Editor directories and files
 .vscode/*
