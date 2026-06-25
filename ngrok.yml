@@ -1,0 +1,24 @@
+# ngrok.yml — Tunnel both the local Supabase API and Evolution API to the public
+# internet so WhatsApp's webhook can reach `wa-webhook` running on your PC.
+#
+# 1. Sign up at https://dashboard.ngrok.com and grab your authtoken
+# 2. `ngrok config add-authtoken <TOKEN>`
+# 3. Reserve a free static subdomain: `ngrok reserve subdomain staysmart-dev`
+# 4. Replace YOUR_NGROK_AUTHTOKEN below (or use the config-add approach above)
+# 5. Start: `ngrok start --all`
+# 6. Copy the printed https URL into NGROK_URL in .env.local — and re-run
+#    `docker compose up -d` so Evolution picks up the new webhook on restart.
+
+version: "2"
+authtoken: ${NGROK_AUTHTOKEN}
+
+tunnels:
+  evolution-api:
+    proto: http
+    addr: 8080
+    # Pick a free static subdomain on ngrok's free tier.
+    subdomain: staysmart-evolution
+  supabase-local:
+    proto: http
+    addr: 54321
+    subdomain: staysmart-supabase
