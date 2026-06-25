@@ -3,7 +3,7 @@
 #  StaySmart — Linux / macOS / WSL bootstrap
 # ===========================================================
 #  Usage:
-#      bash scripts/bootstrap.sh                  # do everything
+#      bash scripts/bootstrap.sh                   # do everything
 #      SKIP_DOCKER=1 SKIP_NGROK=1 bash scripts/bootstrap.sh
 #
 #  Reads .env.local.example, starts Docker Compose + ngrok,
@@ -17,12 +17,12 @@ cd "$PROJECT_ROOT"
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 
 need() { command -v "$1" >/dev/null 2>&1; }
-step() { echo; echo -e "${CYAN}────── $1 ──────${NC}"; }
+step() { echo; echo -e "${CYAN}── $1 ──${NC}"; }
 ok()   { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
 err()  { echo -e "${RED}$1${NC}"; }
 
-# ─── 1 · Prerequisites ─────────────────────────────────────
+# 1. Prerequisites
 step "1 · Checking prerequisites"
 MISSING=()
 need node       || MISSING+=("node")
@@ -37,7 +37,7 @@ else
   ok "node $(node -v) · npm $(npm -v) · docker $(docker --version)"
 fi
 
-# ─── 2 · .env.local ────────────────────────────────────────
+# 2. .env.local
 step "2 · .env.local"
 if [ -f .env.local ]; then
   warn ".env.local already exists — kept as-is"
@@ -50,7 +50,7 @@ else
   exit 1
 fi
 
-# ─── 3 · Docker daemon ─────────────────────────────────────
+# 3. Docker daemon
 if [ "${SKIP_DOCKER:-}" != "1" ]; then
   step "3 · Docker daemon"
   if docker info >/dev/null 2>&1; then
@@ -62,7 +62,7 @@ if [ "${SKIP_DOCKER:-}" != "1" ]; then
   fi
 fi
 
-# ─── 4 · docker compose up ─────────────────────────────────
+# 4. docker compose up
 if [ "${SKIP_COMPOSE:-}" != "1" ]; then
   step "4 · docker compose (Evolution API + Postgres)"
   if [ ! -f docker-compose.yml ]; then
@@ -75,7 +75,7 @@ if [ "${SKIP_COMPOSE:-}" != "1" ]; then
   fi
 fi
 
-# ─── 5 · ngrok ────────────────────────────────────────────
+# 5. ngrok tunnels (FIX: prompt for authtoken if missing)
 if [ "${SKIP_NGROK:-}" != "1" ]; then
   step "5 · ngrok tunnels"
   if ! need ngrok; then
@@ -83,18 +83,37 @@ if [ "${SKIP_NGROK:-}" != "1" ]; then
   elif [ ! -f ngrok.yml ]; then
     warn "ngrok.yml missing — skip."
   else
-    if command -v gnohup >/dev/null; then
-      nohup ngrok start --all --config ./ngrok.yml >ngrok.log 2>&1 &
-    else
-      ( ngrok start --all --config ./ngrok.yml >ngrok.log 2>&1 & ) &
-      disown 2>/dev/null || true
+    have_token=0
+    [ -n "${NGROK_AUTHTOKEN:-}" ] && have_token=1
+    ngrok_cfg="$HOME/.config/ngrok/ngrok.yml"
+    [ -f "$ngrok_cfg" ] && grep -q 'authtoken' "$ngrok_cfg" 2>/dev/null && have_token=1
+    if [ "$have_token" -eq 0 ]; then
+      read -rp "ngrok authtoken not configured. Paste it now or skip? [y=paste / n=skip] " r
+      if [[ "$r" =~ ^[Yy] ]]; then
+        read -rp "ngrok authtoken (https://dashboard.ngrok.com): " token
+        if [ -n "$token" ]; then
+          ngrok config add-authtoken "$token" >/dev/null 2>&1 && ok "Token installed."
+        else
+          warn "Empty token — skipping ngrok."; SKIP_NGROK=1
+        fi
+      else
+        warn "Skipping ngrok this run."; SKIP_NGROK=1
+      fi
     fi
-    ok "ngrok started (background). Tail $PROJECT_ROOT/ngrok.log"
-    warn "↑ Copy 'supabase-local' https URL into .env.local as NGROK_URL."
+    if [ "${SKIP_NGROK:-}" != "1" ]; then
+      if command -v nohup >/dev/null; then
+        nohup ngrok start --all --config ./ngrok.yml >ngrok.log 2>&1 &
+      else
+        ( ngrok start --all --config ./ngrok.yml >ngrok.log 2>&1 & ) &
+        disown 2>/dev/null || true
+      fi
+      ok "ngrok started (background). Tail $PROJECT_ROOT/ngrok.log"
+      warn "↑ Copy 'supabase-local' https URL into .env.local as NGROK_URL."
+    fi
   fi
 fi
 
-# ─── 6 · Supabase ──────────────────────────────────────────
+# 6. Supabase local stack
 if [ "${SKIP_SUPABASE:-}" != "1" ]; then
   step "6 · supabase local stack"
   if ! need supabase; then
@@ -104,7 +123,7 @@ if [ "${SKIP_SUPABASE:-}" != "1" ]; then
   fi
 fi
 
-# ─── 7 · Vite ─────────────────────────────────────────────
+# 7. Vite dev
 if [ "${SKIP_VITE:-}" != "1" ]; then
   step "7 · Vite dev server (npm run dev)"
   if [ ! -d node_modules ]; then
@@ -116,4 +135,4 @@ if [ "${SKIP_VITE:-}" != "1" ]; then
 fi
 
 echo
-ok "✦ Done. Web app: http://localhost:5173 · Evolution: http://localhost:8080"
+ok "Done. Web app: http://localhost:5173 · Evolution: http://localhost:8080"
