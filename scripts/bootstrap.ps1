@@ -28,8 +28,11 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$ProjectRoot = Split-Path -Parent $PSScriptRoot | Split-Path -Parent
+# FIX (review CRITICAL #1): single -Parent is enough — $PSScriptRoot is already
+# the `scripts/` directory; another -Parent was leaking us out of the repo.
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
+Write-Host "[bootstrap] ProjectRoot = $ProjectRoot" -ForegroundColor DarkGray
 
 function Step($title, $block) {
     Write-Host ""
@@ -130,10 +133,28 @@ if (! $SkipNgrok) {
         } elseif (! (Test-Path ngrok.yml)) {
             Write-Host "ngrok.yml missing — skipping." -ForegroundColor DarkYellow
         } else {
-            # Background the ngrok process
-            Start-Process -FilePath "ngrok" -ArgumentList "start --all --config ./ngrok.yml" -WindowStyle Hidden -RedirectStandardOutput "$ProjectRoot\ngrok.log" -RedirectStandardError "$ProjectRoot\ngrok.log"
-            Write-Host "ngrok started (background). Tail .\ngrok.log for the live URLs." -ForegroundColor Green
-            Write-Host "↑ Copy the printed https URL of the 'supabase-local' tunnel into .env.local as NGROK_URL." -ForegroundColor Yellow
+            # FIX (review CRITICAL #2): ngrok requires an authtoken. Prompt or
+            # fall through silently. Skip cleanly if user opts out.
+            if (! (Test-Path "$env:USERPROFILE\.ngrok2\ngrok.yml") -and ! (Test-Path "$env:USERPROFILE\.config\ngrok\ngrok.yml"))) {
+                if (Confirm "ngrok authtoken not configured. Paste it now or skip? [y=paste / n=skip]") {
+                    $token = Read-Host 'ngrok authtoken (from https://dashboard.ngrok.com)'
+                    if ($token -and $token.Length -gt 0) {
+                        ngrok config add-authtoken "$token" | Out-Null
+                        Write-Host "Token installed." -ForegroundColor Green
+                    } else {
+                        Write-Host "Empty token — skipping ngrok this run." -ForegroundColor DarkYellow
+                        $SkipNgrok = $true
+                    }
+                } else {
+                    Write-Host "Skipping ngrok this run." -ForegroundColor DarkYellow
+                    $SkipNgrok = $true
+                }
+            }
+            if (! $SkipNgrok) {
+                Start-Process -FilePath "ngrok" -ArgumentList "start --all --config ./ngrok.yml" -WindowStyle Hidden -RedirectStandardOutput "$ProjectRoot\ngrok.log" -RedirectStandardError "$ProjectRoot\ngrok.log"
+                Write-Host "ngrok started (background). Tail .\ngrok.log for the live URLs." -ForegroundColor Green
+                Write-Host "↑ Copy the printed https URL of the 'supabase-local' tunnel into .env.local as NGROK_URL." -ForegroundColor Yellow
+            }
         }
     }
 }

@@ -10,7 +10,7 @@
 #  optionally starts `supabase start` and Vite dev server.
 # ===========================================================
 
-set -u
+set -uo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 

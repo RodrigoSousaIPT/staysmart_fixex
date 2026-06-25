@@ -1,4 +1,4 @@
-# StaySmart — Fixed Edition (`staysmart_fixed`)
+# StaySmart — Fixed Edition (`staysmart_fixex`)
 
 > Repository: **https://github.com/RodrigoSousaIPT/staysmart_fixex**
 > Live demo (Vercel): **deploy with one click below**
@@ -28,6 +28,8 @@ A thin-fix rewrite of the StaySmart hospitality AI SaaS, with:
 | `ngrok` CLI             | latest               | Free static subdomain recommended     |
 | Supabase CLI            | ≥ 1.207              | Runs `supabase start` + edge fns      |
 | Deno                    | bundled w/ Supabase  | Used to build edge functions          |
+
+> **ngrok requires an authtoken** (free): `https://dashboard.ngrok.com/get-started/your-authtoken`. The bootstrap script will prompt you on first run, or you can `ngrok config add-authtoken <TOKEN>` ahead of time.
 
 ---
 
@@ -171,5 +173,43 @@ npm run dev
   `wa-webhook/index.ts` (currently soft-disabled for dev — flagged in code).
 - Move `wa-greet` invocation to a Postgres trigger if you want true
   out-of-band guarantees.
+
+---
+
+## 7. Push to your own GitHub
+
+The repo already has the remote `https://github.com/RodrigoSousaIPT/staysmart_fixex.git`. To push fresh commits you need GitHub auth:
+
+```bash
+# Option A — GitHub CLI (easiest on Windows):
+gh auth login
+git push -u origin main
+
+# Option B — Personal Access Token (PAT):
+#   Create one at https://github.com/settings/tokens (scopes: repo).
+#   Then push in one shot:
+git push https://<YOUR_PAT>@github.com/RodrigoSousaIPT/staysmart_fixex.git main
+```
+
+The CI workflow at `.github/workflows/ci.yml` runs lint + production build on every push.
+
+---
+
+## 8. Deploy to Vercel
+
+Click "New Project" on https://vercel.com/new and import this repo. Vercel will:
+
+- Detect **Vite** automatically (build command `npm run build`, output `dist`).
+- Apply the `verrites` + security headers from `vercel.json`.
+- Run the GitHub Actions CI as a check (configure in Vercel → Settings → Git).
+
+Add these env vars in the Vercel project (Production + Preview):
+
+| Variable | Where |
+| --- | --- |
+| `VITE_SUPABASE_URL`      | hosted Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | hosted Supabase anon key |
+
+Edge Functions live on Supabase (`supabase functions deploy`), not Vercel.
 
 — Rodrigo / Claude.

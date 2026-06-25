@@ -16,7 +16,9 @@ dist-ssr
 *.local
 # secrets for one-click installers
 ngrok.log
+bootstrap.log
 .vercel
+.vercelignore
 
 # Editor directories and files
 .vscode/*
